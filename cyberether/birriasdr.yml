@@ -18,7 +18,7 @@ graph:
 
       ## Before you start
 
-      You need a Python 3.11 or newer runtime and the COMFAST dongle (USB ID `3574:6211`) on a USB 3.0 port. Select the interpreter under **Settings → Runtime → Python Runtime** and restart CyberEther. Make sure no other program is using the dongle.
+      You need a Python 3.11 or newer runtime and the COMFAST dongle (USB ID `3574:6211`) on a USB 3.0 port. Boards with MediaTek's generic ID `0e8d:7961` are also accepted, but this flowgraph has not been validated on them. Select the interpreter under **Settings → Runtime → Python Runtime** and restart CyberEther. Make sure no other program is using the dongle.
 
       The dongle needs a clean start, which depends on your computer:
 
@@ -68,7 +68,7 @@ graph:
       # dependencies = ["numpy>=1.24,<3", "pyusb>=1.2,<2", "libusb-package>=1.0.26,<2"]
       # ///
 
-      # BirriaSDR experimental original firmware — COMFAST 3574:6211 only.
+      # BirriaSDR experimental original firmware — COMFAST 3574:6211, or generic MediaTek 0e8d:7961 (untested here).
       # No vendor ROM patch or RAM firmware is embedded, downloaded, or loaded.
       # The device still uses its immutable factory boot ROM and PHY power-on routine.
       # Cold channel-6 reception has passed Wi-Fi training/SIGNAL header checks on the Pi 5.
@@ -153,8 +153,9 @@ graph:
       LPF_GAIN = 4          # 0..8: filter-stage gain, not filter bandwidth
       DIGITAL_GAIN = 0      # 0..12
       PYTHON = None        # CyberEther's selected interpreter; never PATH's python3.
-      USE_SUDO = None      # Linux: sudo -n for USB worker; macOS: direct USB access.
-      COLD_PI5 = None      # Auto on Pi 5 only; guarded USB power cycle, no other USB devices.
+      USE_SUDO = False     # Linux: sudo -n for USB worker; macOS: direct USB access.
+      COLD_PI5 = False     # Auto on Pi 5 only; guarded USB power cycle, no other USB devices.
+      DROP_ON_OVERRUN = True  # Live view: drop chunks CyberEther falls behind on instead of stopping.
       # Fixed experimental profile: chain 0, requested channel 6, nominal 40 MSps.
 
       import argparse
@@ -279,7 +280,7 @@ graph:
 
       CHIP_MT7921 = 'mt7921'
 
-      SUPPORTED_DEVICES = {(13684, 25105): CHIP_MT7921}
+      SUPPORTED_DEVICES = {(13684, 25105): CHIP_MT7921, (3725, 31073): CHIP_MT7921}
 
       N_BULK_IN = 2
 
@@ -1171,10 +1172,15 @@ graph:
               fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
               if prepare is not None:
                   prepare(report)
-              candidates = list(usb.core.find(find_all=True, idVendor=13684, idProduct=25105))
+              candidates = [d for d in usb.core.find(find_all=True) if (d.idVendor, d.idProduct) in SUPPORTED_DEVICES]
               if len(candidates) != 1:
-                  raise RuntimeError(f'Expected one COMFAST 3574:6211; found {len(candidates)}')
+                  raise RuntimeError(f'Expected one 3574:6211 or 0e8d:7961 dongle; found {len(candidates)}')
               raw = candidates[0]
+              usb_id = f'{raw.idVendor:04x}:{raw.idProduct:04x}'
+              if usb_id != '3574:6211':
+                  # Same per-port lock as libbirriasdr, so birria_rx cannot open it concurrently.
+                  board_lock = open(f'/tmp/birriasdr-{raw.bus}-{raw.address}.lock', 'a')
+                  fcntl.flock(board_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
               layout = layout_from_pyusb(raw)
               topology = f'{raw.bus}-' + '.'.join(map(str, raw.port_numbers))
               for net in Path('/sys/class/net').glob('*'):
@@ -1182,7 +1188,7 @@ graph:
                   if device.exists() and device.resolve().name.split(':')[0] == topology:
                       if (net / 'operstate').read_text().strip() == 'up':
                           raise RuntimeError(f'{net.name} is in use')
-              dev = Mt7921uDevice(usb_id='3574:6211', address=device_address(raw))
+              dev = Mt7921uDevice(usb_id=usb_id, address=device_address(raw))
               opened = False
               detached = False
               try:
@@ -1844,7 +1850,7 @@ graph:
               hub = usb.core.find(idVendor=7531, bus=bus)
               if hub is None:
                   raise RuntimeError(f'Root hub {bus} missing')
-              others = [d for d in usb.core.find(find_all=True, bus=bus) if d.address != 1 and (d.idVendor, d.idProduct) != (13684, 25105)]
+              others = [d for d in usb.core.find(find_all=True, bus=bus) if d.address != 1 and (d.idVendor, d.idProduct) not in SUPPORTED_DEVICES]
               if others:
                   raise RuntimeError(f'Other devices present on bus {bus}')
               desc = hub.ctrl_transfer(160, 6, 10752 if hub.idProduct == 3 else 10496, 0, 12, 1000)
@@ -1868,7 +1874,7 @@ graph:
               if failures:
                   raise RuntimeError(f'USB power restoration errors: {failures}')
           time.sleep(3)
-          present = usb.core.find(idVendor=13684, idProduct=25105) is not None
+          present = any(((d.idVendor, d.idProduct) in SUPPORTED_DEVICES for d in usb.core.find(find_all=True)))
           print('dongle present', present)
           if not present:
               raise RuntimeError('Dongle did not re-enumerate after the power cycle')
@@ -1882,7 +1888,7 @@ graph:
                   if (net / 'operstate').read_text().strip() == 'up':
                       raise RuntimeError(f'{net.name} is an active USB network interface')
           devices = list(usb.core.find(find_all=True))
-          targets = [d for d in devices if (d.idVendor, d.idProduct) == (13684, 25105)]
+          targets = [d for d in devices if (d.idVendor, d.idProduct) in SUPPORTED_DEVICES]
           if len(targets) != 1 or any((d.address != 1 and d not in targets for d in devices)):
               raise RuntimeError('Cold start requires exactly the COMFAST dongle and USB root hubs')
           controls = [Path(f'/sys/bus/usb/devices/usb{bus}/interface_authorized_default') for bus in (1, 2, 3, 4)]
@@ -1896,7 +1902,7 @@ graph:
                   changed.append(path)
               recover()
               cold['power_cycled'] = True
-              raw = usb.core.find(idVendor=13684, idProduct=25105)
+              raw = next((d for d in usb.core.find(find_all=True) if (d.idVendor, d.idProduct) in SUPPORTED_DEVICES))
               topology = f'{raw.bus}-' + '.'.join(map(str, raw.port_numbers))
               interfaces = list(Path('/sys/bus/usb/devices').glob(topology + ':*'))
               if len(interfaces) != 1:
@@ -2254,8 +2260,10 @@ graph:
 
       class Source:
 
-          def __init__(self, channel=6, python=None, use_sudo=None, seconds=0, gain_mode='automatic', lna=1, lpf=4, digital=0, cold=None):
+          def __init__(self, channel=6, python=None, use_sudo=None, seconds=0, gain_mode='automatic', lna=1, lpf=4, digital=0, cold=None, drop_on_overrun=False):
               self.queue = queue.Queue(maxsize=32)
+              self.drop_on_overrun = drop_on_overrun
+              self.dropped_chunks = 0
               self.metadata = None
               self.report = None
               self.error = None
@@ -2367,8 +2375,17 @@ graph:
                               try:
                                   self.queue.put_nowait((sample, data))
                               except queue.Full:
-                                  self.error = RuntimeError('CyberEther cannot keep up: I/Q queue full; reception stopped')
-                                  self._request_stop()
+                                  if self.drop_on_overrun:
+                                      # Chunks are copies of the ring, so discarding one never stalls the worker.
+                                      try:
+                                          self.queue.get_nowait()
+                                      except queue.Empty:
+                                          pass
+                                      self.dropped_chunks += 1
+                                      self.queue.put_nowait((sample, data))
+                                  else:
+                                      self.error = RuntimeError('CyberEther cannot keep up: I/Q queue full; reception stopped')
+                                      self._request_stop()
                       else:
                           raise RuntimeError('Unknown receiver frame type')
               except Exception as exc:
@@ -2420,7 +2437,8 @@ graph:
           global _source
           if _source is None:
               _source = Source(python=PYTHON, use_sudo=USE_SUDO, gain_mode=GAIN_MODE,
-                               lna=LNA_GAIN, lpf=LPF_GAIN, digital=DIGITAL_GAIN, cold=COLD_PI5)
+                               lna=LNA_GAIN, lpf=LPF_GAIN, digital=DIGITAL_GAIN, cold=COLD_PI5,
+                               drop_on_overrun=DROP_ON_OVERRUN)
           block = _source.poll()
           if block is None:
               time.sleep(.001)
@@ -2436,7 +2454,8 @@ graph:
           attrs['rfReceptionValidated'] = False
           attrs['firstSample'] = np.uint64(first_sample)
           attrs['captureBits'] = np.uint64(14)
-          attrs['continuous'] = True
+          attrs['continuous'] = _source.dropped_chunks == 0
+          attrs['droppedChunks'] = np.uint64(_source.dropped_chunks)
           attrs['sampleRateStatus'] = 'nominal; not externally calibrated'
           attrs['samplesDelivered'] = np.uint64(_source.output_samples)
           attrs['gainMode'] = _source.metadata['gain_mode']
