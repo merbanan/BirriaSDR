@@ -177,8 +177,11 @@ int birriasdr_get_tuning_range(const birriasdr_dev_t *dev, uint64_t *minimum_hz,
                               uint64_t *maximum_hz);
 
 /** Set a requested center in Hz, without channel-number rounding or host mixing.
- * The MT7921 range is 2156000000..2610000000 Hz, inclusive, with nominal
- * 28.6102294921875 Hz hardware steps; frequency accuracy is uncalibrated.
+ * The MT7921 range is two inclusive intervals, 2156000000..2610000000 Hz and
+ * 4900000000..7125000000 Hz; the gap between them returns UNSUPPORTED, so the
+ * span from birriasdr_get_tuning_range() is not entirely tunable. Nominal steps
+ * are 28.6102294921875 Hz below 3 GHz and 47.6837158203125 Hz above; frequency
+ * accuracy is uncalibrated.
  * While idle, stage the center for the next read. With CAP_LIVE_TUNING, apply it
  * during capture without restarting ICAP/DMA or downloading firmware. Calls
  * serialize with gain and lifecycle controls; startup/shutdown may return BUSY.

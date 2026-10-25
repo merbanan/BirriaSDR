@@ -214,10 +214,17 @@ static void test_api(void)
     CHECK(birriasdr_set_tuner_gain(&dev, 100) == BIRRIASDR_ERROR_UNSUPPORTED);
     CHECK(birriasdr_set_agc_mode(&dev, 1) == BIRRIASDR_ERROR_UNSUPPORTED);
     CHECK(birriasdr_set_tuner_bandwidth(&dev, 40000000) == BIRRIASDR_ERROR_UNSUPPORTED);
-    CHECK(birriasdr_set_center_freq(&dev, UINT64_C(5180000000)) == BIRRIASDR_ERROR_UNSUPPORTED);
+    CHECK(birriasdr_set_center_freq(&dev, UINT64_C(5180000000)) == 0);
+    CHECK(birriasdr_get_center_freq(&dev) == UINT64_C(5180000000));
+    /* The range is two intervals: the gap between them is refused. */
+    CHECK(birriasdr_set_center_freq(&dev, UINT64_C(2610000001)) == BIRRIASDR_ERROR_UNSUPPORTED);
+    CHECK(birriasdr_set_center_freq(&dev, UINT64_C(3500000000)) == BIRRIASDR_ERROR_UNSUPPORTED);
+    CHECK(birriasdr_set_center_freq(&dev, UINT64_C(4899999999)) == BIRRIASDR_ERROR_UNSUPPORTED);
+    CHECK(birriasdr_set_center_freq(&dev, UINT64_C(2610000000)) == 0);
+    CHECK(birriasdr_set_center_freq(&dev, UINT64_C(4900000000)) == 0);
     CHECK(birriasdr_get_tuning_range(&dev, &minimum, &maximum) == 0);
     CHECK(birriasdr_get_capabilities(&dev) & BIRRIASDR_CAP_TUNING);
-    CHECK(minimum == UINT64_C(2156000000) && maximum == UINT64_C(2610000000));
+    CHECK(minimum == UINT64_C(2156000000) && maximum == UINT64_C(7125000000));
     CHECK(birriasdr_set_center_freq(&dev, minimum) == 0);
     CHECK(birriasdr_set_center_freq(&dev, maximum) == 0);
     CHECK(birriasdr_set_center_freq(&dev, minimum - 1) == BIRRIASDR_ERROR_UNSUPPORTED);
@@ -229,7 +236,7 @@ static void test_api(void)
     CHECK(id && id->qualified && id->min_frequency == UINT64_C(2190000000) && !id->max_frequency);
     dev.min_frequency = id->min_frequency;
     CHECK(birriasdr_get_tuning_range(&dev, &minimum, &maximum) == 0);
-    CHECK(minimum == UINT64_C(2190000000) && maximum == UINT64_C(2610000000));
+    CHECK(minimum == UINT64_C(2190000000) && maximum == UINT64_C(7125000000));
     CHECK(birriasdr_set_center_freq(&dev, minimum - 1) == BIRRIASDR_ERROR_UNSUPPORTED);
     CHECK(birriasdr_get_center_freq(&dev) == UINT64_C(2437123456));
     CHECK(birriasdr_set_center_freq(&dev, minimum) == 0);

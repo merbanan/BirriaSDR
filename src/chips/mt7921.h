@@ -36,6 +36,12 @@
  */
 #define MT_RF_MIN_HZ UINT64_C(2156000000)
 #define MT_RF_MAX_HZ UINT64_C(2610000000)
+/* High band (5/6 GHz) follows the boot ROM's own tuning routine (0x0084502e):
+ * the oscillator runs at the RF frequency with a 50 MHz reference. Reception
+ * was verified at 5180 MHz only; the rest of the interval is the ROM's.
+ */
+#define MT_RF_HIGH_MIN_HZ UINT64_C(4900000000)
+#define MT_RF_HIGH_MAX_HZ UINT64_C(7125000000)
 #define MT_RF_FRACTION_BITS 20u
 
 /* A mathematical frequency plan, not a claim of analog tuning coverage.
@@ -47,7 +53,10 @@ struct mt_2g_tuning {
     uint32_t nominal_hz_den;
 };
 
+bool mt_frequency_supported(uint64_t frequency_hz);
+uint32_t mt_band_byte(uint64_t frequency_hz);
 int mt_plan_2g(uint64_t frequency_hz, unsigned fraction_bits, struct mt_2g_tuning *plan);
+int mt_plan_5g(uint64_t frequency_hz, unsigned fraction_bits, struct mt_2g_tuning *plan);
 int mt_tune_2g(birriasdr_dev_t *dev, unsigned port, bool secondary,
                uint64_t frequency_hz, unsigned fraction_bits);
 int mt_retune_2g_probe(birriasdr_dev_t *dev, uint64_t frequency_hz, unsigned fraction_bits);

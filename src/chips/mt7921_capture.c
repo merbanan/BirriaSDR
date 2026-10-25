@@ -116,7 +116,7 @@ static int validate(uint64_t frequency, uint32_t rate, const struct birriasdr_ga
 {
     if (gain->lna > 3 || gain->lpf > 8 || gain->digital > 12)
         return BIRRIASDR_ERROR_INVALID;
-    if (frequency < MT_RF_MIN_HZ || frequency > MT_RF_MAX_HZ || rate != 40000000)
+    if (!mt_frequency_supported(frequency) || rate != 40000000)
         return BIRRIASDR_ERROR_UNSUPPORTED;
     return 0;
 }
@@ -137,7 +137,7 @@ const struct bs_backend bs_mt7921_backend = {
     .capabilities = BIRRIASDR_CAP_RX | BIRRIASDR_CAP_RAW_GAIN | BIRRIASDR_CAP_LIVE_GAIN |
                     BIRRIASDR_CAP_TUNING | BIRRIASDR_CAP_LIVE_TUNING,
     .default_frequency = MT_RF_ANCHOR_HZ,
-    .min_frequency = MT_RF_MIN_HZ, .max_frequency = MT_RF_MAX_HZ,
+    .min_frequency = MT_RF_MIN_HZ, .max_frequency = MT_RF_HIGH_MAX_HZ,
     .default_rate = 40000000,
     .validate = validate,
     .identify = identify,

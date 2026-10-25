@@ -101,6 +101,33 @@ static void test_full_range(void)
     printf("%u consecutive tuning words round-trip across the public interval\n", last - first + 1);
 }
 
+/* The high band follows the boot ROM: oscillator at the RF frequency, 50 MHz
+ * reference, cycles floor((240 * MHz - 75) / 50), and a coarse-band byte that
+ * steps every 200 MHz. 5180 MHz is the center verified with a live Wi-Fi signal.
+ */
+static void test_high_band(void)
+{
+    struct mt_2g_tuning plan;
+    CHECK(mt_plan_5g(UINT64_C(5180000000), MT_RF_FRACTION_BITS, &plan) == 0);
+    CHECK(plan.word == 0x8679999au && plan.calibration_cycles == 24862);
+    CHECK(mt_plan_5g(UINT64_C(5500000000), MT_RF_FRACTION_BITS, &plan) == 0);
+    CHECK(plan.word == 0x86e00000u && plan.calibration_cycles == 26398);
+    CHECK(plan.nominal_hz_num / plan.nominal_hz_den == UINT64_C(5500000000));
+    CHECK(mt_plan_5g(UINT64_C(7115000000), MT_RF_FRACTION_BITS, &plan) == 0);
+    CHECK(plan.word == 0x88e4cccdu && plan.calibration_cycles == 34150);
+    CHECK(mt_plan_5g(UINT64_C(2437000000), MT_RF_FRACTION_BITS, &plan) == BIRRIASDR_ERROR_INVALID);
+    CHECK(mt_plan_5g(MT_RF_HIGH_MAX_HZ + 1, MT_RF_FRACTION_BITS, &plan) == BIRRIASDR_ERROR_INVALID);
+    CHECK(mt_band_byte(UINT64_C(2437000000)) == 20);
+    CHECK(mt_band_byte(UINT64_C(4995000000)) == 24);
+    CHECK(mt_band_byte(UINT64_C(4996000000)) == 25);
+    CHECK(mt_band_byte(UINT64_C(5180000000)) == 25);
+    CHECK(mt_band_byte(UINT64_C(5745000000)) == 28);
+    CHECK(mt_band_byte(UINT64_C(6996000000)) == 35);
+    CHECK(mt_band_byte(MT_RF_HIGH_MAX_HZ) == 35);
+    CHECK(mt_frequency_supported(MT_RF_MAX_HZ) && !mt_frequency_supported(MT_RF_MAX_HZ + 1));
+    CHECK(!mt_frequency_supported(MT_RF_HIGH_MIN_HZ - 1) && mt_frequency_supported(MT_RF_HIGH_MIN_HZ));
+}
+
 /* Run without USB access. Physical range and fine-step tests require a signal. */
 int main(void)
 {
@@ -108,5 +135,6 @@ int main(void)
     test_quantization();
     test_limits();
     test_full_range();
+    test_high_band();
     return 0;
 }
